@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head prefix="og: http://ogp.me/ns# fb: http://ogp.me/ns/fb# website: http://ogp.me/ns/website#">
+        <title>three.js webgl - loaders - MMD loader</title>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0"
+        />
+        <link type="text/css" rel="stylesheet" href="main.css" />
+    </head>
+    <body>
+        <script src="/js/ammo.js"></script>
+        <script async src="/js/es-module-shims.js"></script>
+        <script type="importmap">
+            {
+                "imports": {
+                    "three": "https://unpkg.com/three/build/three.module.js",
+                    "three/addons/": "https://unpkg.com/three/examples/jsm/"
+                }
+            }
+        </script>
+        <script type="module">
+            import * as THREE from "three";
+
+            import Stats from "three/addons/libs/stats.module.js";
+            import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+
+            import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+            import { OutlineEffect } from "three/addons/effects/OutlineEffect.js";
+            import { MMDLoader } from "three/addons/loaders/MMDLoader.js";
+            import { MMDAnimationHelper } from "three/addons/animation/MMDAnimationHelper.js";
+
+            let stats;
+
+            let mesh, camera, scene, renderer, effect;
+            let helper, ikHelper, physicsHelper;
+
+            const clock = new THREE.Clock();
+
+            Ammo().then(function (AmmoLib) {
+                Ammo = AmmoLib;
+
+                init();
+                animate();
+            });
+
+            function init() {
+                const container = document.createElement("div");
+                document.body.appendChild(container);
+
+                // camera
+                camera = new THREE.PerspectiveCamera(
+                    45,
+                    window.innerWidth / window.innerHeight,
+                    1,
+                    2000
+                );
+                camera.position.set(0, 15, 30); // カメラの位置を変更
+                camera.lookAt(0, 0, 0); // カメラの注視点を原点に向ける
+
+                // scene
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0xffffff);
+
+                const gridHelper = new THREE.PolarGridHelper(30, 0);
+                gridHelper.position.y = -10;
+                scene.add(gridHelper);
+
+                // Add directional light
+                const spotLight = new THREE.SpotLight(0xffffff);
+                spotLight.position.set(100, 1000, 100);
+                spotLight.castShadow = true;
+                spotLight.shadow.mapSize.width = 1024;
+                spotLight.shadow.mapSize.height = 1024;
+                spotLight.shadow.camera.near = 500;
+                spotLight.shadow.camera.far = 4000;
+                spotLight.shadow.camera.fov = 30;
+
+                scene.add(spotLight);
+
+                // Add ground
+                const groundGeometry = new THREE.PlaneGeometry(100, 100);
+                const groundMaterial = new THREE.MeshPhongMaterial({
+                    color: 0xffffff,
+                });
+                const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                ground.rotation.x = -Math.PI / 2;
+                ground.receiveShadow = true;
+                scene.add(ground);
+
+                //
+
+                renderer = new THREE.WebGLRenderer({ antialias: true });
+                renderer.setPixelRatio(window.devicePixelRatio);
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.shadowMap.enabled = true;
+                container.appendChild(renderer.domElement);
+
+                effect = new OutlineEffect(renderer);
+
+                // STATS
+                stats = new Stats();
+                container.appendChild(stats.dom);
+
+                // model
+                function onProgress(xhr) {
+                    if (xhr.lengthComputable) {
+                        const percentComplete = (xhr.loaded / xhr.total) * 100;
+                        console.log(
+                            Math.round(percentComplete, 2) + "% downloaded"
+                        );
+                    }
+                }
+
+                const pmxFile = "/public/Sour式初音ミクVer.1.02 改/Black.pmx";
+                const vmdFiles = [
+                    "/public/GimmeGimme/ぎみぎみ（みっちゃん）_原曲音源.vmd",
+                ];
+
+                helper = new MMDAnimationHelper({
+                    afterglow: 2.0,
+                });
+
+                const loader = new MMDLoader();
+
+                loader.loadWithAnimation(
+                    pmxFile,
+                    vmdFiles,
+                    function (mmd) {
+                        mesh = mmd.mesh;
+                        mesh.position.set(0, 0, 0);
+                        mesh.castShadow = true;
+                        scene.add(mesh);
+
+                        helper.add(mesh, {
+                            animation: mmd.animation,
+                            physics: true,
+                        });
+
+                        ikHelper = helper.objects
+                            .get(mesh)
+                            .ikSolver.createHelper();
+                        ikHelper.visible = false;
+                        scene.add(ikHelper);
+
+                        physicsHelper = helper.objects
+                            .get(mesh)
+                            .physics.createHelper();
+                        physicsHelper.visible = false;
+                        scene.add(physicsHelper);
+
+                        // Enable shadows for the model
+                        mesh.traverse(function (child) {
+                            if (child instanceof THREE.Mesh) {
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                            }
+                        });
+
+                        initGui();
+                    },
+                    onProgress,
+                    null
+                );
+
+                const controls = new OrbitControls(camera, renderer.domElement);
+                controls.minDistance = 10;
+                controls.maxDistance = 100;
+
+                window.addEventListener("resize", onWindowResize);
+
+                function initGui() {
+                    const api = {
+                        animation: true,
+                        ik: true,
+                        outline: true,
+                        physics: true,
+                        "show IK bones": false,
+                        "show rigid bodies": false,
+                    };
+
+                    const gui = new GUI();
+
+                    gui.add(api, "animation").onChange(function () {
+                        helper.enable("animation", api["animation"]);
+                    });
+
+                    gui.add(api, "ik").onChange(function () {
+                        helper.enable("ik", api["ik"]);
+                    });
+
+                    gui.add(api, "outline").onChange(function () {
+                        effect.enabled = api["outline"];
+                    });
+
+                    gui.add(api, "physics").onChange(function () {
+                        helper.enable("physics", api["physics"]);
+                    });
+
+                    gui.add(api, "show IK bones").onChange(function () {
+                        ikHelper.visible = api["show IK bones"];
+                    });
+
+                    gui.add(api, "show rigid bodies").onChange(function () {
+                        if (physicsHelper !== undefined)
+                            physicsHelper.visible = api["show rigid bodies"];
+                    });
+                }
+            }
+
+            function onWindowResize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+
+                effect.setSize(window.innerWidth, window.innerHeight);
+            }
+
+            //
+
+            function animate() {
+                requestAnimationFrame(animate);
+
+                stats.begin();
+                render();
+                stats.end();
+            }
+
+            function render() {
+                helper.update(clock.getDelta());
+                effect.render(scene, camera);
+            }
+        </script>
+    </body>
+</html>
